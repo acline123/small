@@ -3,10 +3,10 @@ import os
 from flask import Blueprint, request
 
 import config
+from app.kg.store import delete_graph_by_document
 from app.models.database import Document, get_db
 from app.rag.retriever import build_knowledge_base
 from app.rag.vectorstore import delete_by_document_id
-from app.kg.store import delete_graph_by_document
 from app.utils.response import error, success
 
 document_bp = Blueprint("document", __name__)

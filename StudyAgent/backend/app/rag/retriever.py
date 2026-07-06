@@ -1,7 +1,7 @@
+from app.kg.builder import build_knowledge_graph
 from app.rag.loader import load_document
 from app.rag.splitter import split_documents
 from app.rag.vectorstore import add_documents
-from app.kg.builder import build_knowledge_graph
 
 
 def build_knowledge_base(file_path: str, file_type: str, document_id: int, filename: str) -> int:
