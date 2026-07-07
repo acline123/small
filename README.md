@@ -28,8 +28,10 @@
 
 | 服务 | 用途 | 获取地址 |
 |------|------|----------|
-| DeepSeek | 对话生成 & 意图识别 | https://platform.deepseek.com |
+| DeepSeek（token-cloud 代理） | 对话生成 & 意图识别 | 由授课老师提供 Key（模型：DeepSeek-V4-Flash） |
 | SiliconFlow | 文本向量化（Embedding） | https://siliconflow.cn（有免费额度） |
+
+> **说明**：本项目使用 token-cloud 代理（`www.token-cloud.cn`）访问 DeepSeek。如果你自己申请 DeepSeek 官方 Key，需将 `backend/.env` 中 `DEEPSEEK_BASE_URL` 改为 `https://api.deepseek.com`，`DEEPSEEK_MODEL` 改为 `deepseek-chat`。
 
 ### 本地环境
 
@@ -82,10 +84,17 @@ copy .env.example .env
 编辑 `.env`，填入真实 API Key：
 
 ```env
-# DeepSeek Chat API
+# DeepSeek Chat API（token-cloud 代理 / DeepSeek 官方二选一）
+
+# 方式一：token-cloud 代理（老师提供 Key）
 DEEPSEEK_API_KEY=sk-你的deepseek-api-key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_BASE_URL=https://www.token-cloud.cn/v1
+DEEPSEEK_MODEL=DeepSeek-V4-Flash
+
+# 方式二：DeepSeek 官方（自己注册）
+# DEEPSEEK_API_KEY=sk-你的deepseek-api-key
+# DEEPSEEK_BASE_URL=https://api.deepseek.com
+# DEEPSEEK_MODEL=deepseek-chat
 
 # Embedding API（OpenAI 兼容格式，推荐 SiliconFlow 的 BAAI/bge-m3）
 EMBEDDING_API_KEY=sk-你的siliconflow-api-key
@@ -137,6 +146,58 @@ npm run dev
 
 访问浏览器即可使用。
 
+## 常见问题
+
+### 智能问答/对话失败
+
+1. **401 Authentication Fails / Api key is invalid**：API Key 失效或 Base URL 不匹配。
+   - token-cloud 代理：`DEEPSEEK_BASE_URL=https://www.token-cloud.cn/v1`
+   - DeepSeek 官方：`DEEPSEEK_BASE_URL=https://api.deepseek.com`
+2. **403 This token has no access to model**：模型名错误。
+   - token-cloud 代理可用模型：`DeepSeek-V4-Flash`
+   - DeepSeek 官方可用模型：`deepseek-chat`
+3. **Base URL 结尾不要加 `/chat/completions`**：SDK 会自动拼接路径，重复会导致 404。
+
+### Embedding / 文档向量化失败
+
+- 确认 `EMBEDDING_API_KEY` 已在 SiliconFlow 注册获取
+- SiliconFlow 有免费额度，注册地址：https://siliconflow.cn
+
+## Git 协作 & 上传 GitHub
+
+### 首次克隆
+
+```bash
+git clone https://github.com/acline123/small.git
+cd small
+```
+
+### 日常开发流程
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 修改代码后提交
+git add .
+git commit -m "描述你的改动"
+
+# 3. 推送到 GitHub
+git push origin main
+```
+
+### API Key 保护机制
+
+`.env` 文件已在 `.gitignore` 中配置忽略，**不会被上传到 GitHub**。每位同学 clone 后需根据 `.env.example` 模板自行创建：
+
+```bash
+cd StudyAgent/backend
+copy .env.example .env
+# 编辑 .env 填入自己的 API Key
+```
+
+> 如果某个文件已经不小心被 Git 追踪了，运行 `git rm --cached <文件>` 可以只从 Git 移除而不删除本地文件。
+
 ## API 接口
 
 | 方法 | 路径 | 说明 |
@@ -168,6 +229,12 @@ StudyAgent/
 | Agent 工作流 | `app/agent/agent_core.py` + LLM 意图识别 |
 
 ## 修复记录
+
+### 2026-07-07
+
+- **修复 API Key 认证失败（401）**：`.env` 中 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 配置错误。项目实际使用老师提供的 token-cloud 代理平台（`www.token-cloud.cn`），而非 DeepSeek 官方 API。修正 `BASE_URL` 为 `https://www.token-cloud.cn/v1`，模型名为 `DeepSeek-V4-Flash`。
+- **修复 Base URL 路径重复**：SDK 自动拼接 `/chat/completions`，`.env` 中不应在 Base URL 末尾包含该路径。
+- **移动 README 到项目根目录**：原位于 `StudyAgent/README.md`，移至 `README.md`，与内部路径引用保持一致。
 
 ### 2026-06-30
 
