@@ -19,3 +19,7 @@ export function deleteDocument(id) {
 export function rebuildDocument(id) {
   return request.post('/document/rebuild', { document_id: id })
 }
+
+export function getDocumentContent(id) {
+  return request.get('/document/content', { params: { id } })
+}
