@@ -12,6 +12,9 @@ from app.routes.upload import upload_bp
 
 
 def create_app():
+    import config
+
+    config.reload_env()
     flask_app = Flask(__name__)
     CORS(flask_app)
 
@@ -30,6 +33,10 @@ def create_app():
 
     @flask_app.route("/api/health")
     def health():
-        return {"status": "ok"}
+        missing = config.check_api_keys()
+        return {
+            "status": "ok" if not missing else "missing_api_keys",
+            "missing_api_keys": missing,
+        }
 
     return flask_app

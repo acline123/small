@@ -30,6 +30,7 @@ class SessionModel(Base):
 
     id = Column(Text, primary_key=True)
     title = Column(Text)
+    pinned = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -112,6 +113,14 @@ SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     Base.metadata.create_all(engine)
+    # 兼容已有数据库：添加 pinned 列（已存在则忽略）
+    try:
+        from sqlalchemy import text as sa_text
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0"))
+            conn.commit()
+    except Exception:
+        pass
 
 
 def get_db() -> Session:

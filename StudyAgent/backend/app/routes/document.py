@@ -82,3 +82,29 @@ def delete_document():
         return success(message="删除成功")
     finally:
         db.close()
+@document_bp.route('/document/content', methods=['GET'])
+def get_document_content():
+    doc_id = request.args.get('id', type=int)
+    if not doc_id:
+        return error('缺少文档 id')
+    db = get_db()
+    try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            return error('文档不存在', code=404)
+        if not os.path.exists(doc.file_path):
+            return error('文件已丢失', code=404)
+        from app.rag.loader import load_document
+        from app.utils.file_utils import get_file_type
+        file_type = get_file_type(doc.filename)
+        documents = load_document(doc.file_path, file_type)
+        content = '\n\n'.join(d.page_content for d in documents if d.page_content.strip())
+        return success({
+            'id': doc.id,
+            'filename': doc.filename,
+            'file_type': file_type,
+            'file_size': doc.file_size,
+            'content': content,
+        })
+    finally:
+        db.close()

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="chat-window" ref="windowRef">
     <div v-if="!messages.length && !loading" class="welcome">
       <h3>智能学习助手</h3>
@@ -44,14 +44,17 @@
         </div>
       </div>
     </div>
-    <div v-if="loading" class="msg-row assistant">
-      <div class="bubble"><el-icon class="is-loading"><Loading /></el-icon> 思考中...</div>
+    <div v-if="showThinking" class="msg-row assistant">
+      <div class="bubble">
+        <ThinkingProgress ref="thinkingRef" @done="showThinking = false" />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, watch, nextTick } from 'vue'
+import ThinkingProgress from './ThinkingProgress.vue'
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -61,6 +64,16 @@ const props = defineProps({
 defineEmits(['quick-send'])
 
 const windowRef = ref(null)
+const thinkingRef = ref(null)
+const showThinking = ref(false)
+
+watch(() => props.loading, (val) => {
+  if (val) {
+    showThinking.value = true
+  } else if (showThinking.value && thinkingRef.value) {
+    thinkingRef.value.finish()
+  }
+})
 
 const quickPrompts = [
   'TCP 和 UDP 的区别',
@@ -190,3 +203,7 @@ watch(
   text-decoration: underline;
 }
 </style>
+
+
+
+
