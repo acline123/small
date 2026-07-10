@@ -249,18 +249,18 @@ StudyAgent/
 
 ## 修复记录
 
-### 2026-07-07
-
-- **修复 API Key 认证失败（401）**：`.env` 中 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 配置错误。项目实际使用老师提供的 token-cloud 代理平台（`www.token-cloud.cn`），而非 DeepSeek 官方 API。修正 `BASE_URL` 为 `https://www.token-cloud.cn/v1`，模型名为 `DeepSeek-V4-Flash`。
-- **修复 Base URL 路径重复**：SDK 自动拼接 `/chat/completions`，`.env` 中不应在 Base URL 末尾包含该路径。
-- **移动 README 到项目根目录**：原位于 `StudyAgent/README.md`，移至 `README.md`，与内部路径引用保持一致。
-
 ### 2026-07-10
 
 - **新增智能习题功能**：后端新增 Exercise/ExerciseResult 表 + 5 个 API，MCP Tool `generate_exercise` 通过 LLM 评估知识水平并生成适配习题（选择/判断/填空），前端新增 Exercise 页面逐题作答即时批改。
 - **合并组员学习分析模块**：`app/analysis/` 模块在每次提问时并行分析用户水平（ThreadPoolExecutor），结合聊天历史生成问题总结、知识评估和学习路线。Agent 并行架构：分析+意图识别同时执行。
 - **合并组员其他更新**：会话置顶（pinned 字段）、Bing 搜索增强、ChatWindow 可视化渲染组件。
 - **修复可视化缺失**：组员提交中缺少 Mermaid 图表生成后端模块，暂不可用。剩余功能均可正常运行。
+
+### 2026-07-07
+
+- **修复 API Key 认证失败（401）**：`.env` 中 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 配置错误。项目实际使用老师提供的 token-cloud 代理平台（`www.token-cloud.cn`），而非 DeepSeek 官方 API。修正 `BASE_URL` 为 `https://www.token-cloud.cn/v1`，模型名为 `DeepSeek-V4-Flash`。
+- **修复 Base URL 路径重复**：SDK 自动拼接 `/chat/completions`，`.env` 中不应在 Base URL 末尾包含该路径。
+- **移动 README 到项目根目录**：原位于 `StudyAgent/README.md`，移至 `README.md`，与内部路径引用保持一致。
 
 ### 2026-06-30
 
