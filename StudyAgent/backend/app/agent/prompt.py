@@ -48,6 +48,25 @@ def format_web_search_results(results: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def format_exercise_results(result: dict) -> str:
+    """格式化习题生成结果。"""
+    exercises = result.get("exercises", [])
+    level = result.get("level", {})
+    level_text = level.get("level", "未知")
+    parts = [f"当前学习水平：{level_text}\n"]
+
+    type_names = {"choice": "选择题", "true_false": "判断题", "fill_blank": "填空题"}
+    for i, ex in enumerate(exercises, 1):
+        q_type = type_names.get(ex.get("question_type", ""), "题目")
+        parts.append(f"[{i}] 【{q_type}】{ex.get('question', '')}")
+        if ex.get("options"):
+            parts.append(f"    选项：{', '.join(ex['options'])}")
+        parts.append(f"    答案：{ex.get('answer', '（未提供）')}")
+        parts.append(f"    解析：{ex.get('explanation', '暂无解析')}")
+        parts.append("")
+    return "\n".join(parts)
+
+
 def format_graph_results(results: list[dict]) -> str:
     if not results:
         return "知识图谱中未找到相关实体。"

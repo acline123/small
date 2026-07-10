@@ -81,6 +81,31 @@ class Relation(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Text, ForeignKey("sessions.id"), nullable=False)
+    question_type = Column(Text, nullable=False)  # choice / true_false / fill_blank
+    question = Column(Text, nullable=False)
+    options = Column(Text)  # JSON string for choices
+    answer = Column(Text, nullable=False)
+    explanation = Column(Text)
+    topic = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class ExerciseResult(Base):
+    __tablename__ = "exercise_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False)
+    session_id = Column(Text, nullable=False)
+    user_answer = Column(Text, nullable=False)
+    is_correct = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 engine = create_engine(f"sqlite:///{config.DB_PATH}", echo=False)
 SessionLocal = sessionmaker(bind=engine)
 

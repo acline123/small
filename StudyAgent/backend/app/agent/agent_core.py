@@ -6,6 +6,7 @@ from app.agent.memory import load_history, save_message
 from app.agent.prompt import (
     build_rag_prompt,
     build_tool_prompt,
+    format_exercise_results,
     format_graph_results,
     format_search_results,
     format_web_search_results,
@@ -71,6 +72,14 @@ def handle_chat(session_id: str | None, message: str, use_web_search: bool = Fal
         tool_used = "summary_document"
         summary_text = tool_result.get("summary", "")
         messages = build_tool_prompt(history, tool_used, summary_text, message)
+
+    elif intent == "exercise":
+        tool = _get_tool("generate_exercise")
+        tool_result = tool.run(session_id=session_id, types=["choice", "true_false", "fill_blank"], count=5)
+        tool_used = "generate_exercise"
+        sources = tool_result.get("exercises", [])
+        context_str = format_exercise_results(tool_result)
+        messages = build_tool_prompt(history, tool_used, context_str, message)
 
     else:
         docs = similarity_search(message, top_k=config.RETRIEVE_TOP_K)

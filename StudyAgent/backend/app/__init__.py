@@ -4,6 +4,7 @@ from flask_cors import CORS
 from app.models.database import init_db
 from app.routes.chat import chat_bp
 from app.routes.document import document_bp
+from app.routes.exercise import exercise_bp
 from app.routes.graph import graph_bp
 from app.routes.history import history_bp
 from app.routes.summary import summary_bp
@@ -25,6 +26,7 @@ def create_app():
     flask_app.register_blueprint(summary_bp, url_prefix="/api")
     flask_app.register_blueprint(history_bp, url_prefix="/api")
     flask_app.register_blueprint(graph_bp, url_prefix="/api")
+    flask_app.register_blueprint(exercise_bp, url_prefix="/api")
 
     @flask_app.route("/api/health")
     def health():

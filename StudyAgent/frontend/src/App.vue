@@ -19,6 +19,10 @@
           <el-icon><Share /></el-icon>
           <span>知识图谱</span>
         </el-menu-item>
+        <el-menu-item index="/exercise">
+          <el-icon><EditPen /></el-icon>
+          <span>智能习题</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-main class="main">
