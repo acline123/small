@@ -1,44 +1,59 @@
-import json
+"""意图识别 — 规则引擎实现，不调用 LLM，避免每次对话增加一次 API 往返。"""
 import re
 
-from app.llm.deepseek import chat
+# 文档编号：如 "文档1"、"第 2 个文档"
+DOC_ID_PATTERNS = [
+    re.compile(r"文档\s*(\d+)"),
+    re.compile(r"第\s*(\d+)\s*个文档"),
+]
 
-INTENT_PROMPT = """你是一个意图分类器。根据用户输入，判断应执行哪种动作。
+# 出题 / 做习题
+EXERCISE_WORDS = [
+    "出题", "出几道", "出几题", "来几题", "习题", "做练习", "做做题",
+    "自测", "测试一下", "考考我", "小测", "刷题", "练练手",
+]
+# 摘要总结
+SUMMARY_WORDS = ["总结", "摘要", "概括", "归纳", "提炼", "梳理"]
+# 知识图谱 / 实体关系
+GRAPH_PATTERNS = [
+    re.compile(r"什么关系|有何关系|有哪些关系|之间(的)?(关系|关联|联系)|的(关系|关联|联系)"),
+    re.compile(r"知识图谱|实体关系|概念关联"),
+]
+# 联网搜索（实时信息）
+WEB_WORDS = [
+    "联网", "最新", "实时", "新闻", "今年", "今天", "最近发生",
+    "最新技术动态", "最新进展", "热搜", "时事",
+]
+# 知识库内搜索
+SEARCH_WORDS = ["搜索", "查找", "检索", "找一下", "查一下", "找找"]
 
-可选意图（只返回 JSON，不要其他文字）：
-- "chat"：普通问答，基于知识库回答学习问题
-- "search"：用户明确要求搜索、查找文档中的内容
-- "summary"：用户要求摘要、总结、概括文档
-- "web_search"：需要联网获取最新信息、实时数据、外部资料（如新闻、最新技术动态、不在知识库中的内容）
-- "graph_query"：询问实体之间的关系、知识图谱、概念关联（如"A和B有什么关系"）
-- "exercise"：用户要求出题、生成习题、做练习、自测、测试一下掌握情况
+_VALID_INTENTS = ("chat", "search", "summary", "web_search", "graph_query", "exercise")
 
-返回格式：
-{{"intent": "chat|search|summary|web_search|graph_query|exercise", "document_id": null}}
 
-如果用户提到具体文档编号如"文档1"可提取 document_id，否则 document_id 为 null。
-
-用户输入：{message}
-"""
+def _extract_document_id(message: str):
+    for pattern in DOC_ID_PATTERNS:
+        match = pattern.search(message)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def recognize_intent(message: str) -> dict:
-    """使用 LLM 进行意图识别。"""
-    try:
-        reply = chat(
-            [
-                {"role": "system", "content": "你只输出 JSON，不做解释。"},
-                {"role": "user", "content": INTENT_PROMPT.format(message=message)},
-            ],
-            temperature=0,
-        )
-        match = re.search(r"\{.*\}", reply, re.DOTALL)
-        if match:
-            data = json.loads(match.group())
-            intent = data.get("intent", "chat")
-            if intent not in ("chat", "search", "summary", "web_search", "graph_query", "exercise"):
-                intent = "chat"
-            return {"intent": intent, "document_id": data.get("document_id")}
-    except Exception:
-        pass
+    """基于关键词/正则的意图识别，返回 {"intent": ..., "document_id": ...}。
+
+    判断顺序从"动作明确"到"泛泛而谈"：
+    web_search（实时） > exercise（出题） > summary（总结） > search（搜索） > graph_query（关系） > chat
+    """
+    text = message or ""
+
+    if any(w in text for w in WEB_WORDS):
+        return {"intent": "web_search", "document_id": None}
+    if any(w in text for w in EXERCISE_WORDS):
+        return {"intent": "exercise", "document_id": None}
+    if any(w in text for w in SUMMARY_WORDS):
+        return {"intent": "summary", "document_id": _extract_document_id(text)}
+    if any(p.search(text) for p in GRAPH_PATTERNS):
+        return {"intent": "graph_query", "document_id": _extract_document_id(text)}
+    if any(w in text for w in SEARCH_WORDS):
+        return {"intent": "search", "document_id": _extract_document_id(text)}
     return {"intent": "chat", "document_id": None}

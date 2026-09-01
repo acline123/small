@@ -76,6 +76,16 @@ watch(() => props.loading, (val) => {
   }
 })
 
+// 流式回复首个字到达即收起"思考中"动画
+watch(
+  () => props.messages[props.messages.length - 1]?.content,
+  (val) => {
+    if (val && showThinking.value && thinkingRef.value) {
+      thinkingRef.value.finish()
+    }
+  }
+)
+
 const quickPrompts = [
   'TCP 和 UDP 的区别',
   '什么是 RAG？',
@@ -146,7 +156,7 @@ const renderMarkdown = (text) => {
 }
 
 watch(
-  () => [props.messages.length, props.loading],
+  () => [props.messages.length, props.loading, props.messages[props.messages.length - 1]?.content],
   async () => {
     await nextTick()
     if (windowRef.value) {
