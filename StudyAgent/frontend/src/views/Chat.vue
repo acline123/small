@@ -58,7 +58,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import ChatHistory from '../components/ChatHistory.vue'
 import ChatWindow from '../components/ChatWindow.vue'
-import { sendChat, getHistory, getSessions } from '../api/chat'
+import { sendChatStream, getHistory, getSessions } from '../api/chat'
 import { uploadDocument } from '../api/document'
 
 const sessionId = ref(localStorage.getItem('session_id') || '')
@@ -122,17 +122,23 @@ const sendMessage = async (text) => {
   if (!text) return
 
   messages.value.push({ role: 'user', content: text })
+  const assistantMsg = { role: 'assistant', content: '', tool_used: null, sources: [] }
+  messages.value.push(assistantMsg)
 
-  const res = await sendChat(sessionId.value || undefined, text, webSearch.value)
-  const data = res.data
-  sessionId.value = data.session_id
-  localStorage.setItem('session_id', data.session_id)
-  messages.value.push({
-    role: 'assistant',
-    content: data.reply,
-    tool_used: data.tool_used,
-    sources: data.sources,
-  })
+  // 流式接收回复，逐段追加到气泡
+  const meta = await sendChatStream(
+    sessionId.value || undefined,
+    text,
+    webSearch.value,
+    (delta) => {
+      assistantMsg.content += delta
+    }
+  )
+
+  sessionId.value = meta.session_id
+  localStorage.setItem('session_id', meta.session_id)
+  assistantMsg.tool_used = meta.tool_used
+  assistantMsg.sources = meta.sources
   fetchSessions()
 }
 
@@ -164,9 +170,14 @@ const send = async () => {
     if (!uploadDone) {
       attachedFile.value = pendingFile
     }
+    // 助手消息还没有内容时，连同用户消息一起移除；有部分内容则保留
     const last = messages.value[messages.value.length - 1]
-    if (last?.role === 'user' && last.content === pendingText) {
+    if (last?.role === 'assistant' && !last.content) {
       messages.value.pop()
+      const prev = messages.value[messages.value.length - 1]
+      if (prev?.role === 'user' && prev.content === pendingText) {
+        messages.value.pop()
+      }
     }
     ElMessage.error('发送失败，请检查后端是否运行及 API Key 是否配置')
   } finally {
@@ -180,7 +191,14 @@ const quickSend = async (text) => {
   try {
     await sendMessage(text)
   } catch {
-    messages.value.pop()
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && !last.content) {
+      messages.value.pop()
+      const prev = messages.value[messages.value.length - 1]
+      if (prev?.role === 'user' && prev.content === text) {
+        messages.value.pop()
+      }
+    }
     ElMessage.error('发送失败，请检查后端是否运行及 API Key 是否配置')
   } finally {
     loading.value = false

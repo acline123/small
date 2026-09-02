@@ -31,6 +31,8 @@ CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 RETRIEVE_TOP_K = 4
 MEMORY_LIMIT = 10
+# 学习分析 LLM 调用的最长等待秒数（超时降级为空分析，不阻塞回复）
+ANALYSIS_TIMEOUT = float(os.getenv("ANALYSIS_TIMEOUT", "3"))
 
 FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
@@ -42,6 +44,7 @@ def reload_env() -> None:
     global DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
     global EMBEDDING_API_KEY, EMBEDDING_BASE_URL, EMBEDDING_MODEL
     global FLASK_HOST, FLASK_PORT, FLASK_DEBUG, WEB_SEARCH_MAX_RESULTS, WEB_SEARCH_ENGINE
+    global ANALYSIS_TIMEOUT
 
     load_dotenv(BASE_DIR / ".env", override=True)
 
@@ -55,6 +58,7 @@ def reload_env() -> None:
 
     WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
     WEB_SEARCH_ENGINE = os.getenv("WEB_SEARCH_ENGINE", "auto").lower()
+    ANALYSIS_TIMEOUT = float(os.getenv("ANALYSIS_TIMEOUT", "3"))
     FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
     FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
     FLASK_DEBUG = os.getenv("FLASK_DEBUG", "true").lower() == "true"
