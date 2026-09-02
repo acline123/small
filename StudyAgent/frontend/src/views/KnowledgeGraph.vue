@@ -1,7 +1,7 @@
 <template>
   <div class="graph-page">
     <div class="graph-header">
-      <h2>知识图谱</h2>
+      <h2 style="font-size: 35px;">知识图谱</h2>
       <div class="graph-controls">
         <el-select
           v-model="selectedDocId"
@@ -150,18 +150,29 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+h2 {
+  margin-bottom: 16px;
+  text-align: center;
+  font-family: "Comic Sans MS","Comic Sans",cursive;
+}
 .graph-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: center;
+  margin-bottom: 20px;
+  position: relative;
 }
+
 .graph-header h2 {
   margin: 0;
+  text-align: center;
 }
+
 .graph-controls {
   display: flex;
   gap: 12px;
+  position: absolute;
+  right: 0;
 }
 .stats-row {
   margin-bottom: 16px;

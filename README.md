@@ -4,12 +4,15 @@
 
 ## 功能
 
-- 文档上传（PDF / DOCX / TXT）并自动构建 ChromaDB 知识库
+- 文档上传（PDF / DOCX / TXT / PPTX）并自动构建 ChromaDB 知识库（知识图谱后台异步构建，不阻塞上传）
 - RAG 检索增强问答（LangChain + ChromaDB）
-- Agent 工作流：LLM 意图识别 → MCP Tool 调用 → DeepSeek 生成
-- MCP Tool：`search_document`、`summary_document`
+- **流式输出**：聊天 SSE 流式渲染（`/api/chat/stream`），回复逐字上屏，首字延迟大幅降低
+- Agent 工作流：规则引擎意图识别 → MCP Tool 调用 → DeepSeek 生成
+- MCP Tool：`search_document`、`summary_document`、`generate_exercise`、`query_knowledge_graph`、`web_search`
+- **学习分析**：每次提问自动分析用户水平（Beginner/Intermediate/Advanced），生成个性化学习路线（后台执行、限时降级，不阻塞回复）
+- **智能习题**：基于聊天记录和文档生成习题（选择/判断/填空），自动批改+解析（填空题支持模糊匹配与 LLM 语义判分）
 - 多轮对话 + SQLite 聊天记录
-- Vue3 + Element Plus 前端三页面
+- Vue3 + Element Plus 前端四页面
 
 ## 技术栈
 
@@ -18,8 +21,8 @@
 | 前端 | Vue3、Element Plus、Axios、Vite |
 | 后端 | Python、Flask、LangChain |
 | 向量库 | ChromaDB |
-| 数据库 | SQLite |
-| 大模型 | DeepSeek API |
+| 数据库 | SQLite、SQLAlchemy |
+| 大模型 | DeepSeek API（token-cloud 代理） |
 | Embedding | BAAI/bge-m3（SiliconFlow） |
 
 ## 前置依赖
@@ -31,7 +34,7 @@
 | DeepSeek（token-cloud 代理） | 对话生成 & 意图识别 | 由授课老师提供 Key（模型：DeepSeek-V4-Flash） |
 | SiliconFlow | 文本向量化（Embedding） | https://siliconflow.cn（有免费额度） |
 
-> **说明**：本项目使用 token-cloud 代理（`www.token-cloud.cn`）访问 DeepSeek。如果你自己申请 DeepSeek 官方 Key，需将 `backend/.env` 中 `DEEPSEEK_BASE_URL` 改为 `https://api.deepseek.com`，`DEEPSEEK_MODEL` 改为 `deepseek-chat`。
+> **说明**：本项目使用 token-cloud 代理（`api.token-cloud.cn`）访问 DeepSeek。如果你自己申请 DeepSeek 官方 Key，需将 `backend/.env` 中 `DEEPSEEK_BASE_URL` 改为 `https://api.deepseek.com`，`DEEPSEEK_MODEL` 改为 `deepseek-chat`。
 
 ### 本地环境
 
@@ -67,6 +70,7 @@ werkzeug>=3.0.0
 | element-plus | ^2.8.0 |
 | @element-plus/icons-vue | ^2.3.1 |
 | axios | ^1.7.0 |
+| mermaid | ^11.0 |
 | vite (dev) | ^5.4.0 |
 | @vitejs/plugin-vue (dev) | ^5.1.0 |
 
@@ -88,7 +92,7 @@ copy .env.example .env
 
 # 方式一：token-cloud 代理（老师提供 Key）
 DEEPSEEK_API_KEY=sk-你的deepseek-api-key
-DEEPSEEK_BASE_URL=https://www.token-cloud.cn/v1
+DEEPSEEK_BASE_URL=https://api.token-cloud.cn/v1
 DEEPSEEK_MODEL=DeepSeek-V4-Flash
 
 # 方式二：DeepSeek 官方（自己注册）
@@ -105,6 +109,9 @@ EMBEDDING_MODEL=BAAI/bge-m3
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5000
 FLASK_DEBUG=true
+
+# 学习分析限时（秒），后台执行，超时降级不阻塞回复
+ANALYSIS_TIMEOUT=3
 ```
 
 > **说明**：DeepSeek 官方 API 目前不提供 Embedding 端点。项目通过 OpenAI 兼容接口调用 Embedding 服务。推荐使用 [SiliconFlow](https://siliconflow.cn) 的 `BAAI/bge-m3` 模型（中文效果好，有免费额度）。
@@ -151,7 +158,7 @@ npm run dev
 ### 智能问答/对话失败
 
 1. **401 Authentication Fails / Api key is invalid**：API Key 失效或 Base URL 不匹配。
-   - token-cloud 代理：`DEEPSEEK_BASE_URL=https://www.token-cloud.cn/v1`
+   - token-cloud 代理：`DEEPSEEK_BASE_URL=https://api.token-cloud.cn/v1`
    - DeepSeek 官方：`DEEPSEEK_BASE_URL=https://api.deepseek.com`
 2. **403 This token has no access to model**：模型名错误。
    - token-cloud 代理可用模型：`DeepSeek-V4-Flash`
@@ -205,17 +212,34 @@ copy .env.example .env
 | POST | /api/upload | 上传文档 |
 | GET | /api/documents | 文档列表 |
 | DELETE | /api/document?id= | 删除文档 |
-| POST | /api/chat | 智能问答 |
+| POST | /api/chat | 智能问答（非流式） |
+| POST | /api/chat/stream | 智能问答（SSE 流式，推荐） |
 | POST | /api/summary | 文档摘要 |
 | GET | /api/history | 聊天历史 |
+| POST | /api/exercise/assess | 评估知识水平 |
+| POST | /api/exercise/generate | 生成习题 |
+| POST | /api/exercise/submit | 提交答案（自动批改） |
+| GET | /api/exercise/history | 答题历史 |
+| GET | /api/exercise/stats | 答题统计 |
+
+> **POST /api/chat 返回新增字段**：`analysis`（学习分析结果）、`tool_used`（使用的工具）、`sources`（参考来源）。分析失败时自动降级返回空结构。
 
 ## 项目结构
 
 ```
 StudyAgent/
-├── frontend/     # Vue3 前端
-├── backend/      # Flask 后端
-└── docs/         # 设计文档
+├── frontend/          # Vue3 前端
+├── backend/           # Flask 后端
+│   ├── app/
+│   │   ├── agent/     # Agent 核心 + 意图识别 + 记忆
+│   │   ├── analysis/  # 学习分析模块
+│   │   ├── tools/     # MCP Tools（5个）
+│   │   ├── routes/    # API 路由
+│   │   ├── rag/       # RAG 检索
+│   │   ├── kg/        # 知识图谱
+│   │   └── models/    # 数据库模型
+│   └── ...
+└── docs/              # 设计文档
 ```
 
 ## 课程要求对照
@@ -226,9 +250,26 @@ StudyAgent/
 | RAG 检索 | `app/rag/` |
 | ≥2 MCP Tool | `app/tools/search_document.py`、`summary_document.py` |
 | 多轮对话 | `app/agent/memory.py` + SQLite |
-| Agent 工作流 | `app/agent/agent_core.py` + LLM 意图识别 |
+| Agent 工作流 | `app/agent/agent_core.py` + 规则引擎意图识别（`app/agent/intent.py`） |
 
 ## 修复记录
+
+### 2026-09-01
+
+- **修复 token-cloud API 域名变更**：代理平台 API 已从 `www.token-cloud.cn` 迁移至 `api.token-cloud.cn`，旧域名现在只保留官网页面，导致 `/api/chat` 返回连接错误（APIConnectionError）。已更新 `.env` / `.env.example` / README 中的 `DEEPSEEK_BASE_URL` 为 `https://api.token-cloud.cn/v1`，Key 无需更换。
+- **优化响应延迟（聊天/上传/习题）**：
+  - 聊天新增 `/api/chat/stream` SSE 流式端点，前端逐字渲染，首字延迟约 7s（原整段等待 10~30s）；意图识别改为规则引擎（`app/agent/intent.py`），去掉每次聊天的一次 LLM 调用；学习分析移至后台线程限时等待（`ANALYSIS_TIMEOUT`，默认 3s），超时降级不阻塞回复。
+  - 习题生成合并为一次 LLM 调用（评估水平 + 出题，原两次串行）；填空题批改先做规范化模糊匹配，未命中时 LLM 判分并行执行。
+  - 上传时知识图谱构建移到后台线程，上传请求不再等待图谱 LLM 提取（实测该调用约 48s）；图谱提取范围缩小（1500 字 / 10 实体）。
+  - DeepSeek client 改为惰性单例，新增 `chat_stream()` 流式生成。
+
+### 2026-07-10
+
+- **新增智能习题功能**：后端新增 Exercise/ExerciseResult 表 + 5 个 API，MCP Tool `generate_exercise` 通过 LLM 评估知识水平并生成适配习题（选择/判断/填空），前端新增 Exercise 页面逐题作答即时批改。
+- **合并组员学习分析模块**：`app/analysis/` 模块在每次提问时并行分析用户水平（ThreadPoolExecutor），结合聊天历史生成问题总结、知识评估和学习路线。Agent 并行架构：分析+意图识别同时执行。
+- **合并组员其他更新**：会话置顶（pinned 字段）、Bing 搜索增强、ChatWindow 可视化渲染组件。
+- **修复可视化缺失**：组员提交中缺少 Mermaid 图表生成后端模块，暂不可用。剩余功能均可正常运行。
+- **修复聊天消息**： 修复 markdown 格式渲染，可以正常显示内容。
 
 ### 2026-07-07
 

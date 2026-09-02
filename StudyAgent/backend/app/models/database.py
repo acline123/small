@@ -30,6 +30,7 @@ class SessionModel(Base):
 
     id = Column(Text, primary_key=True)
     title = Column(Text)
+    pinned = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -81,12 +82,45 @@ class Relation(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Text, ForeignKey("sessions.id"), nullable=False)
+    question_type = Column(Text, nullable=False)  # choice / true_false / fill_blank
+    question = Column(Text, nullable=False)
+    options = Column(Text)  # JSON string for choices
+    answer = Column(Text, nullable=False)
+    explanation = Column(Text)
+    topic = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class ExerciseResult(Base):
+    __tablename__ = "exercise_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False)
+    session_id = Column(Text, nullable=False)
+    user_answer = Column(Text, nullable=False)
+    is_correct = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 engine = create_engine(f"sqlite:///{config.DB_PATH}", echo=False)
 SessionLocal = sessionmaker(bind=engine)
 
 
 def init_db():
     Base.metadata.create_all(engine)
+    # 兼容已有数据库：添加 pinned 列（已存在则忽略）
+    try:
+        from sqlalchemy import text as sa_text
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0"))
+            conn.commit()
+    except Exception:
+        pass
 
 
 def get_db() -> Session:

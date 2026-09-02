@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="chat-window" ref="windowRef">
     <div v-if="!messages.length && !loading" class="welcome">
       <h3>智能学习助手</h3>
@@ -22,6 +22,7 @@
         <div class="content">
           <template v-for="(part, pi) in parseContent(msg.content)" :key="pi">
             <pre v-if="part.type === 'code'" class="code-block"><code>{{ part.text }}</code></pre>
+            <div v-else-if="part.type === 'html'" class="text-part" v-html="part.text"></div>
             <span v-else class="text-part">{{ part.text }}</span>
           </template>
         </div>
@@ -44,14 +45,17 @@
         </div>
       </div>
     </div>
-    <div v-if="loading" class="msg-row assistant">
-      <div class="bubble"><el-icon class="is-loading"><Loading /></el-icon> 思考中...</div>
+    <div v-if="showThinking" class="msg-row assistant">
+      <div class="bubble">
+        <ThinkingProgress ref="thinkingRef" @done="showThinking = false" />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, watch, nextTick } from 'vue'
+import ThinkingProgress from './ThinkingProgress.vue'
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -61,6 +65,26 @@ const props = defineProps({
 defineEmits(['quick-send'])
 
 const windowRef = ref(null)
+const thinkingRef = ref(null)
+const showThinking = ref(false)
+
+watch(() => props.loading, (val) => {
+  if (val) {
+    showThinking.value = true
+  } else if (showThinking.value && thinkingRef.value) {
+    thinkingRef.value.finish()
+  }
+})
+
+// 流式回复首个字到达即收起"思考中"动画
+watch(
+  () => props.messages[props.messages.length - 1]?.content,
+  (val) => {
+    if (val && showThinking.value && thinkingRef.value) {
+      thinkingRef.value.finish()
+    }
+  }
+)
 
 const quickPrompts = [
   'TCP 和 UDP 的区别',
@@ -77,19 +101,62 @@ const parseContent = (text) => {
   let match
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push({ type: 'text', text: text.slice(lastIndex, match.index) })
+      parts.push({ type: 'html', text: renderMarkdown(text.slice(lastIndex, match.index)) })
     }
     parts.push({ type: 'code', text: match[1].trim() })
     lastIndex = regex.lastIndex
   }
   if (lastIndex < text.length) {
-    parts.push({ type: 'text', text: text.slice(lastIndex) })
+    parts.push({ type: 'html', text: renderMarkdown(text.slice(lastIndex)) })
   }
   return parts.length ? parts : [{ type: 'text', text }]
 }
 
+const renderMarkdown = (text) => {
+  // 先转义 HTML，再转换 markdown 语法
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // 标题 ### / ## / #
+  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>')
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
+  html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>')
+
+  // 粗体 **text**
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+
+  // 斜体 *text*
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+  // 行内代码 `code`
+  html = html.replace(/`(.+?)`/g, '<code class="inline-code">$1</code>')
+
+  // 链接 [text](url)
+  html = html.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+
+  // 无序列表项 - item
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
+
+  // 有序列表项 1. item
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+
+  // 引用 > text
+  html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+
+  // 分隔线 ---
+  html = html.replace(/^---+$/gm, '<hr>')
+
+  // 换行保留
+  html = html.replace(/\n\n/g, '</p><p>')
+  html = html.replace(/\n/g, '<br>')
+
+  return '<p>' + html + '</p>'
+}
+
 watch(
-  () => [props.messages.length, props.loading],
+  () => [props.messages.length, props.loading, props.messages[props.messages.length - 1]?.content],
   async () => {
     await nextTick()
     if (windowRef.value) {
@@ -144,8 +211,8 @@ watch(
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 .user .bubble {
-  background: #409eff;
-  color: #fff;
+  background: grey;
+  color: white;
 }
 .role-label {
   font-size: 12px;
@@ -157,6 +224,42 @@ watch(
 }
 .text-part {
   white-space: pre-wrap;
+}
+.text-part :deep(h2),
+.text-part :deep(h3),
+.text-part :deep(h4) {
+  margin: 8px 0 4px 0;
+  font-weight: bold;
+}
+.text-part :deep(h2) { font-size: 18px; }
+.text-part :deep(h3) { font-size: 16px; }
+.text-part :deep(h4) { font-size: 14px; }
+.text-part :deep(strong) { font-weight: bold; }
+.text-part :deep(em) { font-style: italic; }
+.text-part :deep(li) { margin-left: 16px; }
+.text-part :deep(blockquote) {
+  border-left: 3px solid #dcdfe6;
+  padding-left: 12px;
+  color: #909399;
+  margin: 8px 0;
+}
+.text-part :deep(.inline-code) {
+  background: #f0f2f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 13px;
+}
+.text-part :deep(a) {
+  color: #409eff;
+}
+.text-part :deep(hr) {
+  border: none;
+  border-top: 1px solid #e4e7ed;
+  margin: 12px 0;
+}
+.text-part :deep(p) {
+  margin: 4px 0;
 }
 .code-block {
   background: #282c34;
@@ -190,3 +293,7 @@ watch(
   text-decoration: underline;
 }
 </style>
+
+
+
+

@@ -9,7 +9,7 @@ EXTRACT_PROMPT = """从以下学习资料文本中提取知识图谱的实体和
 1. 实体 name 使用原文中的术语，type 为：概念、技术、方法、人物、组织 之一
 2. 关系 type 描述实体间的关系，如：包含、属于、实现、依赖、对比
 3. 只提取文本中明确出现或可直接推断的内容，不要编造
-4. 最多提取 15 个实体、20 条关系
+4. 最多提取 10 个实体、15 条关系
 
 只返回 JSON，格式：
 {{"entities": [{{"name": "实体名", "type": "概念"}}], "relations": [{{"source": "实体A", "target": "实体B", "type": "关系"}}]}}
@@ -24,7 +24,7 @@ def extract_entities_relations(text: str) -> dict:
     if not text.strip():
         return {"entities": [], "relations": []}
 
-    truncated = text[:3000]
+    truncated = text[:1500]
     try:
         reply = chat(
             [

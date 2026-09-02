@@ -1,6 +1,6 @@
-<template>
+﻿<template>
   <div class="chat-page">
-    <h2>智能问答</h2>
+    <h2 style="font-size: 35px;">智能问答</h2>
     <el-card shadow="never" class="chat-card">
       <div class="chat-layout">
         <ChatHistory
@@ -8,6 +8,7 @@
           :active-id="sessionId"
           @select="loadSession"
           @new-chat="newChat"
+          @refresh="fetchSessions"
         />
         <div class="chat-main">
           <ChatWindow
@@ -22,14 +23,29 @@
               inactive-text="知识库"
               style="margin-right: 12px"
             />
-            <el-input
-              v-model="input"
-              type="textarea"
-              :rows="2"
-              placeholder="输入问题，例如：TCP是什么？"
-              @keydown.enter.ctrl="send"
+            <div class="input-box">
+              <div v-if="attachedFile" class="attachment-bar">
+                <el-tag closable type="info" @close="clearAttachment">
+                  {{ attachedFile.name }}
+                </el-tag>
+              </div>
+              <el-input
+                v-model="input"
+                type="textarea"
+                :rows="2"
+                placeholder="输入问题，Enter 发送，Shift+Enter 换行"
+                @keydown="handleKeydown"
+              />
+            </div>
+            <input
+              ref="fileInputRef"
+              type="file"
+              class="hidden-file-input"
+              accept=".pdf,.docx,.txt,.pptx"
+              @change="handleFileSelect"
             />
-            <el-button type="primary" :loading="loading" @click="send">发送 (Ctrl+Enter)</el-button>
+            <el-button :disabled="loading" @click="triggerFileSelect">附件</el-button>
+            <el-button type="primary" :loading="loading" @click="send">发送</el-button>
           </div>
         </div>
       </div>
@@ -42,12 +58,15 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import ChatHistory from '../components/ChatHistory.vue'
 import ChatWindow from '../components/ChatWindow.vue'
-import { sendChat, getHistory, getSessions } from '../api/chat'
+import { sendChatStream, getHistory, getSessions } from '../api/chat'
+import { uploadDocument } from '../api/document'
 
 const sessionId = ref(localStorage.getItem('session_id') || '')
 const messages = ref([])
 const sessions = ref([])
 const input = ref('')
+const attachedFile = ref(null)
+const fileInputRef = ref(null)
 const loading = ref(false)
 const webSearch = ref(false)
 
@@ -67,43 +86,123 @@ const newChat = () => {
   sessionId.value = ''
   localStorage.removeItem('session_id')
   messages.value = []
+  attachedFile.value = null
+}
+
+const triggerFileSelect = () => {
+  fileInputRef.value?.click()
+}
+
+const handleFileSelect = (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : ''
+  if (!['pdf', 'docx', 'txt', 'pptx'].includes(ext)) {
+    ElMessage.warning('仅支持 PDF、DOCX、TXT、PPTX 格式')
+    return
+  }
+
+  attachedFile.value = file
+}
+
+const clearAttachment = () => {
+  attachedFile.value = null
+}
+
+const handleKeydown = (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    send()
+  }
 }
 
 const sendMessage = async (text) => {
-  if (!text || loading.value) return
+  if (!text) return
 
   messages.value.push({ role: 'user', content: text })
+  const assistantMsg = { role: 'assistant', content: '', tool_used: null, sources: [] }
+  messages.value.push(assistantMsg)
+
+  // 流式接收回复，逐段追加到气泡
+  const meta = await sendChatStream(
+    sessionId.value || undefined,
+    text,
+    webSearch.value,
+    (delta) => {
+      assistantMsg.content += delta
+    }
+  )
+
+  sessionId.value = meta.session_id
+  localStorage.setItem('session_id', meta.session_id)
+  assistantMsg.tool_used = meta.tool_used
+  assistantMsg.sources = meta.sources
+  fetchSessions()
+}
+
+const send = async () => {
+  const text = input.value.trim()
+  const file = attachedFile.value
+  if ((!text && !file) || loading.value) return
+
   loading.value = true
+  const pendingText = text
+  const pendingFile = file
+  let uploadDone = false
 
   try {
-    const res = await sendChat(sessionId.value || undefined, text, webSearch.value)
-    const data = res.data
-    sessionId.value = data.session_id
-    localStorage.setItem('session_id', data.session_id)
-    messages.value.push({
-      role: 'assistant',
-      content: data.reply,
-      tool_used: data.tool_used,
-      sources: data.sources,
-    })
-    fetchSessions()
+    if (pendingFile) {
+      await uploadDocument(pendingFile)
+      attachedFile.value = null
+      uploadDone = true
+      if (!pendingText) {
+        ElMessage.success('附件已上传至知识库')
+        return
+      }
+    }
+
+    input.value = ''
+    await sendMessage(pendingText)
   } catch {
-    messages.value.pop()
+    input.value = pendingText
+    if (!uploadDone) {
+      attachedFile.value = pendingFile
+    }
+    // 助手消息还没有内容时，连同用户消息一起移除；有部分内容则保留
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && !last.content) {
+      messages.value.pop()
+      const prev = messages.value[messages.value.length - 1]
+      if (prev?.role === 'user' && prev.content === pendingText) {
+        messages.value.pop()
+      }
+    }
     ElMessage.error('发送失败，请检查后端是否运行及 API Key 是否配置')
   } finally {
     loading.value = false
   }
 }
 
-const send = async () => {
-  const text = input.value.trim()
-  if (!text) return
-  input.value = ''
-  await sendMessage(text)
-}
-
-const quickSend = (text) => {
-  sendMessage(text)
+const quickSend = async (text) => {
+  if (loading.value) return
+  loading.value = true
+  try {
+    await sendMessage(text)
+  } catch {
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && !last.content) {
+      messages.value.pop()
+      const prev = messages.value[messages.value.length - 1]
+      if (prev?.role === 'user' && prev.content === text) {
+        messages.value.pop()
+      }
+    }
+    ElMessage.error('发送失败，请检查后端是否运行及 API Key 是否配置')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -117,6 +216,8 @@ onMounted(async () => {
 <style scoped>
 h2 {
   margin-bottom: 16px;
+  text-align: center;
+  font-family: "Comic Sans MS","Comic Sans",cursive;
 }
 .chat-card {
   min-height: calc(100vh - 120px);
@@ -137,7 +238,16 @@ h2 {
   margin-top: 12px;
   align-items: flex-end;
 }
-.input-area .el-input {
+.input-box {
   flex: 1;
+}
+.input-box .el-textarea {
+  width: 100%;
+}
+.attachment-bar {
+  margin-bottom: 8px;
+}
+.hidden-file-input {
+  display: none;
 }
 </style>
