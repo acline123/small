@@ -42,7 +42,3 @@ export function rebuildDocument(id) {
 export function getDocumentContent(id) {
   return request.get("/document/content", { params: { id } })
 }
-
-export function getDocumentContent(id) {
-  return request.get('/document/content', { params: { id } })
-}

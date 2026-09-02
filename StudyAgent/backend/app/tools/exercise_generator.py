@@ -9,6 +9,43 @@ from app.rag.vectorstore import similarity_search
 from app.tools.base import BaseTool
 
 # 评估水平 + 生成习题合并为一次 LLM 调用，避免两次串行往返
+TYPE_LABELS = {
+    "choice": "选择题",
+    "true_false": "判断题",
+    "fill_blank": "填空题",
+}
+
+_TYPE_EXAMPLES = {
+    "choice": """    {{
+      "question_type": "choice",
+      "question": "题目",
+      "options": ["A. 选项A", "B. 选项B", "C. 选项C", "D. 选项D"],
+      "answer": "A",
+      "explanation": "解析",
+      "topic": "知识点"
+    }}""",
+    "true_false": """    {{
+      "question_type": "true_false",
+      "question": "题目",
+      "answer": "对",
+      "explanation": "解析",
+      "topic": "知识点"
+    }}""",
+    "fill_blank": """    {{
+      "question_type": "fill_blank",
+      "question": "题目（用 ___ 表示填空位置）",
+      "answer": "正确答案",
+      "explanation": "解析",
+      "topic": "知识点"
+    }}""",
+}
+
+_TYPE_NOTES = {
+    "choice": '选择题的 answer 是选项字母（如 "A"）',
+    "true_false": '判断题的 answer 是 "对" 或 "错"',
+    "fill_blank": "填空题的 answer 是完整填空内容",
+}
+
 COMBINED_PROMPT = """你是一名学习评估专家兼出题老师。根据用户的对话记录和已上传的文档信息，
 先评估用户的当前知识水平，再基于参考资料生成 {count} 道难度适配的习题。
 
@@ -21,7 +58,7 @@ COMBINED_PROMPT = """你是一名学习评估专家兼出题老师。根据用�
 【参考资料】
 {context}
 
-题型：选择题、判断题、填空题。
+题型：{type_desc}。只生成以上题型，严禁生成其他题型。
 
 请只输出 JSON（不要其他文字）：
 {{
@@ -31,35 +68,12 @@ COMBINED_PROMPT = """你是一名学习评估专家兼出题老师。根据用�
   "weaknesses": ["薄弱的领域"],
   "suggestion": "一句话学习建议",
   "exercises": [
-    {{
-      "question_type": "choice",
-      "question": "题目",
-      "options": ["A. 选项A", "B. 选项B", "C. 选项C", "D. 选项D"],
-      "answer": "A",
-      "explanation": "解析",
-      "topic": "知识点"
-    }},
-    {{
-      "question_type": "true_false",
-      "question": "题目",
-      "answer": "对",
-      "explanation": "解析",
-      "topic": "知识点"
-    }},
-    {{
-      "question_type": "fill_blank",
-      "question": "题目（用 ___ 表示填空位置）",
-      "answer": "正确答案",
-      "explanation": "解析",
-      "topic": "知识点"
-    }}
+{type_examples}
   ]
 }}
 
 注意：
-- 选择题的 answer 是选项字母（如 "A"）
-- 判断题的 answer 是 "对" 或 "错"
-- 填空题的 answer 是完整填空内容
+{type_notes}
 - 习题应主要基于参考资料出题，参考资料不足时用通用知识"""
 
 
@@ -102,12 +116,19 @@ class ExerciseGeneratorTool(BaseTool):
         docs_chunks = similarity_search(query, top_k=6, document_id=document_id)
         context = "\n\n".join(d.page_content[:500] for d in docs_chunks) or "（知识库暂无内容，请根据通用知识出题）"
 
-        # 4. 一次调用：评估水平 + 生成习题
+        # 4. 一次调用：评估水平 + 生成习题（题型严格限制为所选类型）
+        type_desc = "、".join(TYPE_LABELS[t] for t in types)
+        type_examples = ",\n".join(_TYPE_EXAMPLES[t] for t in types)
+        type_notes = "\n".join(f"- {_TYPE_NOTES[t]}" for t in types)
+
         prompt = COMBINED_PROMPT.format(
             history=history_text,
             documents=doc_text,
             context=context[:6000],
             count=count,
+            type_desc=type_desc,
+            type_examples=type_examples,
+            type_notes=type_notes,
         )
         reply = chat(
             [
@@ -121,7 +142,11 @@ class ExerciseGeneratorTool(BaseTool):
             k: result.get(k)
             for k in ("level", "topics", "strengths", "weaknesses", "suggestion")
         }
-        exercises_raw = result.get("exercises", [])
+        # 过滤掉模型可能误生成的非所选题型，并限制数量
+        exercises_raw = [
+            ex for ex in result.get("exercises", [])
+            if ex.get("question_type") in types
+        ][:count]
 
         # 5. 保存到数据库
         db = get_db()

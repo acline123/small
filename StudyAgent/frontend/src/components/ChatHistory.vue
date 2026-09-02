@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="history-panel">
     <div class="panel-header">
       <span>历史会话</span>
@@ -136,7 +136,7 @@ const handleCommand = async (cmd, session) => {
   all: unset; /* 重置所有默认样式 */
   display: inline-block;
   padding: 8px 20px;
-  background: #1a1a1a;
+  background: #1a73e8;
   color: #ffffff;
   border-radius: 6px;
   font-size: 16px;
@@ -148,11 +148,11 @@ const handleCommand = async (cmd, session) => {
 }
 
 .new-chat-btn:hover {
-  background: #333333;
+  background: #1557b0;
 }
 
 .new-chat-btn:active {
-  background: #000000;
+  background: #0d47a1;
   transform: scale(0.96);
 }
 .session-item {

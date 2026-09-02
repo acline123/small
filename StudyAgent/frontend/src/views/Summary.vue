@@ -1,6 +1,6 @@
 <template>
   <div>
-    <h2 style="font-size: 35px;">文档摘要</h2>
+    <h2>文档摘要</h2>
     <el-card shadow="never">
       <el-form inline>
         <el-form-item label="选择文档">
@@ -79,7 +79,9 @@ const handleSummary = async () => {
 h2 {
   margin-bottom: 16px;
   text-align: center;
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
+  font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+  font-size: 24px;
+  font-weight: 500;
 }
 
 .summary-box {

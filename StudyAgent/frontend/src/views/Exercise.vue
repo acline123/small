@@ -1,6 +1,6 @@
 <template>
   <div class="exercise-page">
-    <h2 style="font-size: 35px;">智能习题</h2>
+    <h2>智能习题</h2>
 
     <!-- 知识水平卡片 -->
     <el-card shadow="never" class="level-card" v-loading="assessing">
@@ -307,7 +307,9 @@ function resetExercise() {
 .exercise-page h2 {
   margin-bottom: 16px;
   text-align: center;
-  font-family: "Comic Sans MS","Comic Sans",cursive;
+  font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+  font-size: 24px;
+  font-weight: 500;
 }
 .level-card,
 .settings-card,
@@ -361,6 +363,7 @@ h4 {
 .options-group {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 10px;
 }
 .option-item {
@@ -368,6 +371,7 @@ h4 {
   border: 1px solid #e4e7ed;
   border-radius: 6px;
   transition: border-color 0.2s;
+  margin-right: 0;
 }
 .option-item:hover {
   border-color: #409eff;

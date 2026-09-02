@@ -48,11 +48,12 @@ const route = useRoute()
 .logo {
   height: 60px;
   line-height: 60px;
-  text-align: center;
+  padding-left: 20px;
+  text-align: left;
   font-size: 26px;
   font-weight: bold;
   color: black;
-  border-bottom: 1px solid white;
+  border-bottom: 1px solid #e8e8e8;
 }
 .aside :deep(.el-menu) {
   border-right: none;
@@ -60,13 +61,16 @@ const route = useRoute()
 }
 .aside :deep(.el-menu-item) {
   color: black;
-  height: 75px;
-  font-size: 26px;
-  font-family: "Comic Sans MS","Comic Sans",cursive;
+  height: 56px;
+  font-size: 18px;
+  font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+}
+.aside :deep(.el-menu-item) .el-icon {
+  font-size: 20px;
 }
 .aside :deep(.el-menu-item.is-active) {
-  background: #263445 !important;
-  color: rgba(255, 255, 255, 0.6);
+  background: #1a73e8 !important;
+  color: white;
 }
 .main {
   padding: 20px;

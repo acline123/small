@@ -8,7 +8,7 @@
 
     <!-- 上传区域 -->
     <el-card shadow="never" class="upload-card">
-      <DocumentUpload @uploaded="refreshList" />
+      <DocumentUpload @uploaded="refreshList" @queue-change="handleQueueChange" />
     </el-card>
 
     <!-- 数据统计 -->
@@ -21,28 +21,11 @@
         <div class="stat-info">
           <span class="stat-label">文档总数</span>
           <div class="stat-value">
-            24
+            {{ totalCount }}
             <span>个</span>
           </div>
           <div class="stat-desc">
-            较上月 <strong>+8</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon green">
-          <el-icon><Tickets /></el-icon>
-        </div>
-
-        <div class="stat-info">
-          <span class="stat-label">文本总数</span>
-          <div class="stat-value">
-            128.6K
-            <span>字</span>
-          </div>
-          <div class="stat-desc">
-            较上月 <strong>+23.4K</strong>
+            累计上传
           </div>
         </div>
       </div>
@@ -55,11 +38,11 @@
         <div class="stat-info">
           <span class="stat-label">已处理</span>
           <div class="stat-value">
-            20
+            {{ stats.processed }}
             <span>个</span>
           </div>
           <div class="stat-desc">
-            占比 83.3%
+            占比 {{ processedPercent }}
           </div>
         </div>
       </div>
@@ -72,11 +55,11 @@
         <div class="stat-info">
           <span class="stat-label">处理中</span>
           <div class="stat-value">
-            4
+            {{ stats.processing }}
             <span>个</span>
           </div>
           <div class="stat-desc">
-            占比 16.7%
+            占比 {{ processingPercent }}
           </div>
         </div>
       </div>
@@ -92,28 +75,63 @@
 
       <DocumentList
         ref="listRef"
+        @changed="fetchStats"
       />
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import {
   Document,
-  Tickets,
   CircleCheck,
   Loading
 } from '@element-plus/icons-vue'
 
 import DocumentUpload from '../components/DocumentUpload.vue'
 import DocumentList from '../components/DocumentList.vue'
+import { getDocuments } from '../api/document'
 
 const listRef = ref(null)
 
+const stats = reactive({
+  processed: 0,
+  processing: 0,
+})
+
+const totalCount = computed(() => stats.processed + stats.processing)
+
+const processedPercent = computed(() => {
+  if (!totalCount.value) return '0%'
+  return ((stats.processed / totalCount.value) * 100).toFixed(1) + '%'
+})
+
+const processingPercent = computed(() => {
+  if (!totalCount.value) return '0%'
+  return ((stats.processing / totalCount.value) * 100).toFixed(1) + '%'
+})
+
+const fetchStats = async () => {
+  try {
+    const res = await getDocuments()
+    const docs = res.data || []
+    stats.processed = docs.filter((d) => d.status === 'ready').length
+  } catch {
+    // 后端未就绪时保持原值
+  }
+}
+
+const handleQueueChange = (n) => {
+  stats.processing = n
+}
+
 const refreshList = () => {
   listRef.value?.fetchList()
+  fetchStats()
 }
+
+onMounted(fetchStats)
 </script>
 
 <style scoped>
@@ -130,8 +148,9 @@ const refreshList = () => {
 .page-header h2 {
   margin-bottom: 16px;
   text-align: center;
-  font-family: "Comic Sans MS","Comic Sans",cursive;
-  font-size: 35px;
+  font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+  font-size: 24px;
+  font-weight: 500;
 }
 
 .page-header p {
@@ -163,7 +182,7 @@ const refreshList = () => {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -305,7 +324,7 @@ const refreshList = () => {
   }
 
   .page-header h2 {
-    font-size: 30px;
+  font-size: 22px;
   }
 }
 </style>

@@ -41,6 +41,8 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getDocuments, deleteDocument, rebuildDocument, getDocumentContent } from '../api/document'
 
+const emit = defineEmits(['changed'])
+
 const documents = ref([])
 const loading = ref(false)
 const rebuildingId = ref(null)
@@ -82,6 +84,7 @@ const handleRebuild = async (id) => {
     await rebuildDocument(id)
     ElMessage.success('重建成功')
     fetchList()
+    emit('changed')
   } finally {
     rebuildingId.value = null
   }
@@ -92,6 +95,7 @@ const handleDelete = async (id) => {
   await deleteDocument(id)
   ElMessage.success('删除成功')
   fetchList()
+  emit('changed')
 }
 
 onMounted(fetchList)

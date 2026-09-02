@@ -2,11 +2,11 @@
   <div>
     <el-upload
       drag
+      multiple
       :auto-upload="false"
       :show-file-list="false"
       accept=".pdf,.docx,.txt,.pptx"
       :on-change="handleChange"
-      :disabled="uploadState.status === 'uploading'"
     >
       <el-icon class="upload-icon"><UploadFilled /></el-icon>
       <div class="el-upload__text">拖拽文件到此处，或 <em>点击上传</em></div>
@@ -39,13 +39,16 @@ import { ref, reactive, computed } from "vue"
 import { ElMessage } from "element-plus"
 import { uploadDocumentWithProgress } from "../api/document"
 
-const emit = defineEmits(["uploaded"])
+const emit = defineEmits(["uploaded", "queue-change"])
 
 const uploadState = reactive({
   status: "idle",
   fileName: "",
   percent: 0,
 })
+
+const queue = ref([])
+const processing = ref(false)
 
 const statusText = computed(() => {
   const map = { idle: "", uploading: "上传中...", success: "上传完成", error: "上传失败" }
@@ -58,27 +61,47 @@ const progressStatus = computed(() => {
   return ""
 })
 
-const handleChange = async (uploadFile) => {
+const emitQueue = () => emit("queue-change", queue.value.length)
+
+const handleChange = (uploadFile) => {
   const file = uploadFile?.raw
-  if (!file || uploadState.status === "uploading") return
+  if (!file) return
 
-  uploadState.status = "uploading"
-  uploadState.fileName = file.name
-  uploadState.percent = 0
+  queue.value.push(file)
+  emitQueue()
+  processQueue()
+}
 
-  try {
-    await uploadDocumentWithProgress(file, (pct) => {
-      uploadState.percent = pct
-    })
-    uploadState.percent = 100
-    uploadState.status = "success"
-    ElMessage.success("「" + file.name + "」上传成功，知识库已更新")
-    emit("uploaded")
-  } catch (e) {
-    uploadState.status = "error"
-    const msg = e.response?.data?.message || e.message || "上传失败"
-    ElMessage.error(msg)
+const processQueue = async () => {
+  if (processing.value) return
+  processing.value = true
+
+  while (queue.value.length) {
+    const file = queue.value[0]
+    uploadState.fileName = file.name
+    uploadState.percent = 0
+    uploadState.status = "uploading"
+
+    try {
+      await uploadDocumentWithProgress(file, (pct) => {
+        uploadState.percent = pct
+      })
+      uploadState.percent = 100
+      uploadState.status = "success"
+      ElMessage.success("「" + file.name + "」上传成功，知识库已更新")
+      emit("uploaded")
+    } catch (e) {
+      uploadState.status = "error"
+      const msg = e.response?.data?.message || e.message || "上传失败"
+      ElMessage.error(msg)
+    }
+
+    queue.value.shift()
+    emitQueue()
   }
+
+  processing.value = false
+  uploadState.status = "idle"
 }
 </script>
 

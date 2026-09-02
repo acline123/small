@@ -1,6 +1,6 @@
 ﻿<template>
   <div class="chat-page">
-    <h2 style="font-size: 35px;">智能问答</h2>
+    <h2>智能问答</h2>
     <el-card shadow="never" class="chat-card">
       <div class="chat-layout">
         <ChatHistory
@@ -217,7 +217,9 @@ onMounted(async () => {
 h2 {
   margin-bottom: 16px;
   text-align: center;
-  font-family: "Comic Sans MS","Comic Sans",cursive;
+  font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+  font-size: 24px;
+  font-weight: 500;
 }
 .chat-card {
   min-height: calc(100vh - 120px);

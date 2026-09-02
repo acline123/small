@@ -1,7 +1,7 @@
 <template>
   <div class="graph-page">
     <div class="graph-header">
-      <h2 style="font-size: 35px;">知识图谱</h2>
+      <h2>知识图谱</h2>
       <div class="graph-controls">
         <el-select
           v-model="selectedDocId"
@@ -153,7 +153,9 @@ onUnmounted(() => {
 h2 {
   margin-bottom: 16px;
   text-align: center;
-  font-family: "Comic Sans MS","Comic Sans",cursive;
+  font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+  font-size: 24px;
+  font-weight: 500;
 }
 .graph-header {
   display: flex;
