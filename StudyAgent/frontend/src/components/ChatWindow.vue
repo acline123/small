@@ -201,8 +201,8 @@ watch(
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 .user .bubble {
-  background: #409eff;
-  color: #fff;
+  background: grey;
+  color: white;
 }
 .role-label {
   font-size: 12px;

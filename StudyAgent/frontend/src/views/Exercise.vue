@@ -1,6 +1,6 @@
 <template>
   <div class="exercise-page">
-    <h2>智能习题</h2>
+    <h2 style="font-size: 35px;">智能习题</h2>
 
     <!-- 知识水平卡片 -->
     <el-card shadow="never" class="level-card" v-loading="assessing">
@@ -306,6 +306,8 @@ function resetExercise() {
 }
 .exercise-page h2 {
   margin-bottom: 16px;
+  text-align: center;
+  font-family: "Comic Sans MS","Comic Sans",cursive;
 }
 .level-card,
 .settings-card,

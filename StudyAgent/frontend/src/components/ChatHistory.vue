@@ -2,7 +2,7 @@
   <div class="history-panel">
     <div class="panel-header">
       <span>历史会话</span>
-      <el-button type="primary" size="small" @click="$emit('new-chat')">新对话</el-button>
+      <el-button class="new-chat-btn" size="small" @click="$emit('new-chat')">新对话</el-button>
     </div>
     <div
       v-for="s in sortedSessions"
@@ -132,6 +132,29 @@ const handleCommand = async (cmd, session) => {
   margin-bottom: 8px;
   font-weight: bold;
 }
+.new-chat-btn {
+  all: unset; /* 重置所有默认样式 */
+  display: inline-block;
+  padding: 8px 20px;
+  background: #1a1a1a;
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.new-chat-btn:hover {
+  background: #333333;
+}
+
+.new-chat-btn:active {
+  background: #000000;
+  transform: scale(0.96);
+}
 .session-item {
   display: flex;
   align-items: center;
@@ -167,7 +190,7 @@ const handleCommand = async (cmd, session) => {
 }
 .pin-icon {
   color: #e6a23c;
-  font-size: 12px;
+  font-size: 20px;
   flex-shrink: 0;
 }
 .time {
@@ -190,4 +213,5 @@ const handleCommand = async (cmd, session) => {
 .session-item:hover .menu-btn {
   opacity: 1;
 }
+
 </style>
