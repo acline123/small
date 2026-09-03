@@ -6,7 +6,6 @@ from app.agent.memory import load_history
 from app.llm.deepseek import chat
 from app.models.database import Document, Exercise, get_db
 from app.rag.vectorstore import similarity_search
-from app.tools.base import BaseTool
 
 # 评估水平 + 生成习题合并为一次 LLM 调用，避免两次串行往返
 TYPE_LABELS = {
@@ -87,99 +86,93 @@ def _parse_json(reply: str, default=None):
     return default
 
 
-class ExerciseGeneratorTool(BaseTool):
-    name = "generate_exercise"
-    description = "根据知识库内容和用户学习水平，自动生成适配习题（选择题/判断题/填空题）"
+def generate_exercise(session_id: str = None, types: list = None, count: int = 5, document_id: int = None) -> dict:
+    """根据知识库内容和用户学习水平，自动生成适配习题（选择题/判断题/填空题）。"""
+    if types is None:
+        types = ["choice", "true_false", "fill_blank"]
+    if not session_id:
+        return {"exercises": [], "error": "缺少 session_id"}
 
-    def run(self, session_id=None, types=None, count=5, document_id=None, **_):
-        if types is None:
-            types = ["choice", "true_false", "fill_blank"]
-        if not session_id:
-            return {"exercises": [], "error": "缺少 session_id"}
+    # 1. 获取聊天记录
+    history = load_history(session_id, limit=10)
+    history_text = "\n".join(
+        f"[{h['role']}]: {h['content'][:300]}" for h in history
+    ) or "（暂无聊天记录）"
 
-        # 1. 获取聊天记录
-        history = load_history(session_id, limit=10)
-        history_text = "\n".join(
-            f"[{h['role']}]: {h['content'][:300]}" for h in history
-        ) or "（暂无聊天记录）"
+    # 2. 获取文档列表
+    db = get_db()
+    try:
+        docs = db.query(Document).order_by(Document.created_at.desc()).all()
+        doc_text = "\n".join(d.filename for d in docs) or "（暂无文档）"
+    finally:
+        db.close()
 
-        # 2. 获取文档列表
-        db = get_db()
-        try:
-            docs = db.query(Document).order_by(Document.created_at.desc()).all()
-            doc_text = "\n".join(d.filename for d in docs) or "（暂无文档）"
-        finally:
-            db.close()
+    # 3. 检索参考资料
+    query = history_text[-300:] if history_text.strip() != "（暂无聊天记录）" else "知识点"
+    docs_chunks = similarity_search(query, top_k=6, document_id=document_id)
+    context = "\n\n".join(d.page_content[:500] for d in docs_chunks) or "（知识库暂无内容，请根据通用知识出题）"
 
-        # 3. 检索参考资料
-        query = history_text[-300:] if history_text.strip() != "（暂无聊天记录）" else "知识点"
-        docs_chunks = similarity_search(query, top_k=6, document_id=document_id)
-        context = "\n\n".join(d.page_content[:500] for d in docs_chunks) or "（知识库暂无内容，请根据通用知识出题）"
+    # 4. 一次调用：评估水平 + 生成习题（题型严格限制为所选类型）
+    type_desc = "、".join(TYPE_LABELS[t] for t in types)
+    type_examples = ",\n".join(_TYPE_EXAMPLES[t] for t in types)
+    type_notes = "\n".join(f"- {_TYPE_NOTES[t]}" for t in types)
 
-        # 4. 一次调用：评估水平 + 生成习题（题型严格限制为所选类型）
-        type_desc = "、".join(TYPE_LABELS[t] for t in types)
-        type_examples = ",\n".join(_TYPE_EXAMPLES[t] for t in types)
-        type_notes = "\n".join(f"- {_TYPE_NOTES[t]}" for t in types)
+    prompt = COMBINED_PROMPT.format(
+        history=history_text,
+        documents=doc_text,
+        context=context[:6000],
+        count=count,
+        type_desc=type_desc,
+        type_examples=type_examples,
+        type_notes=type_notes,
+    )
+    reply = chat(
+        [
+            {"role": "system", "content": "你只输出 JSON，不做解释。"},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+    )
+    result = _parse_json(reply, {})
+    level_data = {
+        k: result.get(k)
+        for k in ("level", "topics", "strengths", "weaknesses", "suggestion")
+    }
+    # 过滤掉模型可能误生成的非所选题型，并限制数量
+    exercises_raw = [
+        ex for ex in result.get("exercises", [])
+        if ex.get("question_type") in types
+    ][:count]
 
-        prompt = COMBINED_PROMPT.format(
-            history=history_text,
-            documents=doc_text,
-            context=context[:6000],
-            count=count,
-            type_desc=type_desc,
-            type_examples=type_examples,
-            type_notes=type_notes,
-        )
-        reply = chat(
-            [
-                {"role": "system", "content": "你只输出 JSON，不做解释。"},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.7,
-        )
-        result = _parse_json(reply, {})
-        level_data = {
-            k: result.get(k)
-            for k in ("level", "topics", "strengths", "weaknesses", "suggestion")
-        }
-        # 过滤掉模型可能误生成的非所选题型，并限制数量
-        exercises_raw = [
-            ex for ex in result.get("exercises", [])
-            if ex.get("question_type") in types
-        ][:count]
+    # 5. 保存到数据库
+    db = get_db()
+    saved = []
+    try:
+        for ex in exercises_raw:
+            q_type = ex.get("question_type", "choice")
+            opts = json.dumps(ex.get("options", []), ensure_ascii=False) if q_type == "choice" else None
+            record = Exercise(
+                session_id=session_id,
+                question_type=q_type,
+                question=ex.get("question", ""),
+                options=opts,
+                answer=ex.get("answer", ""),
+                explanation=ex.get("explanation", ""),
+                topic=ex.get("topic", ""),
+            )
+            db.add(record)
+            db.flush()
+            saved.append({
+                "id": record.id,
+                "question_type": q_type,
+                "question": record.question,
+                "options": ex.get("options") if q_type == "choice" else (
+                    ["对", "错"] if q_type == "true_false" else None
+                ),
+                "topic": record.topic,
+            })
+        db.commit()
+    finally:
+        db.close()
 
-        # 5. 保存到数据库
-        db = get_db()
-        saved = []
-        try:
-            for ex in exercises_raw:
-                q_type = ex.get("question_type", "choice")
-                opts = json.dumps(ex.get("options", []), ensure_ascii=False) if q_type == "choice" else None
-                record = Exercise(
-                    session_id=session_id,
-                    question_type=q_type,
-                    question=ex.get("question", ""),
-                    options=opts,
-                    answer=ex.get("answer", ""),
-                    explanation=ex.get("explanation", ""),
-                    topic=ex.get("topic", ""),
-                )
-                db.add(record)
-                db.flush()
-                saved.append({
-                    "id": record.id,
-                    "question_type": q_type,
-                    "question": record.question,
-                    "options": ex.get("options") if q_type == "choice" else (
-                        ["对", "错"] if q_type == "true_false" else None
-                    ),
-                    "topic": record.topic,
-                })
-            db.commit()
-        finally:
-            db.close()
-
-        return {"exercises": saved, "level": level_data}
-
-
-exercise_generator = ExerciseGeneratorTool()
+    return {"exercises": saved, "level": level_data}

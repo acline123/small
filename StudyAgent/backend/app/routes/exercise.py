@@ -7,8 +7,8 @@ from flask import Blueprint, request
 
 from app.agent.memory import load_history
 from app.llm.deepseek import chat
+from app.mcp.client import call_tool
 from app.models.database import Document, Exercise, ExerciseResult, get_db
-from app.tools.exercise_generator import exercise_generator
 from app.utils.response import error, success
 
 exercise_bp = Blueprint("exercise", __name__)
@@ -123,8 +123,9 @@ def generate_exercise():
     if count < 1 or count > 20:
         return error("题量范围为 1-20")
 
-    result = exercise_generator.run(
-        session_id=session_id, types=types, count=count, document_id=document_id
+    result = call_tool(
+        "generate_exercise",
+        {"session_id": session_id, "types": types, "count": count, "document_id": document_id},
     )
     if result.get("error"):
         return error(result["error"], code=400)

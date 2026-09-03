@@ -15,18 +15,11 @@ from app.agent.prompt import (
 )
 from app.analysis.service import EMPTY_ANALYSIS, analyze_learning
 from app.llm.deepseek import chat, chat_stream
+from app.mcp.client import call_tool
 from app.rag.vectorstore import similarity_search
-from app.tools import registry
 
 # 学习分析在后台线程执行，主流程限时等待（超时降级为空分析，不阻塞回复）
 _analysis_executor = ThreadPoolExecutor(max_workers=2)
-
-
-def _get_tool(name: str):
-    tool = registry.get(name)
-    if not tool:
-        raise RuntimeError(f"工具 {name} 未注册")
-    return tool
 
 
 def _wait_analysis(future, timeout: float = None) -> dict:
@@ -50,39 +43,34 @@ def _route_and_build(session_id: str, message: str, use_web_search: bool, histor
     sources = []
 
     if intent == "web_search":
-        tool = _get_tool("web_search")
-        tool_result = tool.run(query=message)
+        tool_result = call_tool("web_search", {"query": message})
         tool_used = "web_search"
         sources = tool_result.get("results", [])
         context_str = format_web_search_results(sources)
         messages = build_tool_prompt(history, tool_used, context_str, message)
 
     elif intent == "graph_query":
-        tool = _get_tool("query_knowledge_graph")
-        tool_result = tool.run(query=message, document_id=document_id)
+        tool_result = call_tool("query_knowledge_graph", {"query": message, "document_id": document_id})
         tool_used = "query_knowledge_graph"
         sources = tool_result.get("results", [])
         context_str = format_graph_results(sources)
         messages = build_tool_prompt(history, tool_used, context_str, message)
 
     elif intent == "search":
-        tool = _get_tool("search_document")
-        tool_result = tool.run(query=message, top_k=config.RETRIEVE_TOP_K, document_id=document_id)
+        tool_result = call_tool("search_document", {"query": message, "top_k": config.RETRIEVE_TOP_K, "document_id": document_id})
         tool_used = "search_document"
         sources = tool_result.get("results", [])
         context_str = format_search_results(sources)
         messages = build_tool_prompt(history, tool_used, context_str, message)
 
     elif intent == "summary":
-        tool = _get_tool("summary_document")
-        tool_result = tool.run(document_id=document_id, query=message)
+        tool_result = call_tool("summary_document", {"document_id": document_id, "query": message})
         tool_used = "summary_document"
         summary_text = tool_result.get("summary", "")
         messages = build_tool_prompt(history, tool_used, summary_text, message)
 
     elif intent == "exercise":
-        tool = _get_tool("generate_exercise")
-        tool_result = tool.run(session_id=session_id, types=["choice", "true_false", "fill_blank"], count=5)
+        tool_result = call_tool("generate_exercise", {"session_id": session_id, "types": ["choice", "true_false", "fill_blank"], "count": 5})
         tool_used = "generate_exercise"
         sources = tool_result.get("exercises", [])
         context_str = format_exercise_results(tool_result)

@@ -8,7 +8,7 @@
 - RAG 检索增强问答（LangChain + ChromaDB）
 - **流式输出**：聊天 SSE 流式渲染（`/api/chat/stream`），回复逐字上屏，首字延迟大幅降低
 - Agent 工作流：规则引擎意图识别 → MCP Tool 调用 → DeepSeek 生成
-- MCP Tool：`search_document`、`summary_document`、`generate_exercise`、`query_knowledge_graph`、`web_search`
+- **标准 MCP Tool**（官方 mcp SDK / FastMCP，同进程 in-memory 调用）：`search_document`、`summary_document`、`generate_exercise`、`query_knowledge_graph`、`web_search`
 - **学习分析**：每次提问自动分析用户水平（Beginner/Intermediate/Advanced），生成个性化学习路线（后台执行、限时降级，不阻塞回复）
 - **智能习题**：基于聊天记录和文档生成习题（选择/判断/填空），自动批改+解析（填空题支持模糊匹配与 LLM 语义判分）
 - 多轮对话 + SQLite 聊天记录
@@ -24,6 +24,7 @@
 | 数据库 | SQLite、SQLAlchemy |
 | 大模型 | DeepSeek API（token-cloud 代理） |
 | Embedding | BAAI/bge-m3（SiliconFlow） |
+| MCP | 官方 mcp Python SDK（FastMCP），同进程 in-memory transport |
 
 ## 前置依赖
 
@@ -59,6 +60,7 @@ docx2txt>=0.8
 openai>=1.0.0
 sqlalchemy>=2.0.0
 werkzeug>=3.0.0
+mcp>=1.0.0,<2
 ```
 
 ### 前端依赖（frontend/package.json）
@@ -233,7 +235,8 @@ StudyAgent/
 │   ├── app/
 │   │   ├── agent/     # Agent 核心 + 意图识别 + 记忆
 │   │   ├── analysis/  # 学习分析模块
-│   │   ├── tools/     # MCP Tools（5个）
+│   │   ├── mcp/       # 标准 MCP server（注册工具）+ client（call_tool）
+│   │   ├── tools/     # 5 个工具函数的业务实现
 │   │   ├── routes/    # API 路由
 │   │   ├── rag/       # RAG 检索
 │   │   ├── kg/        # 知识图谱
@@ -242,17 +245,98 @@ StudyAgent/
 └── docs/              # 设计文档
 ```
 
+## MCP 工具机制（标准 MCP 实现）
+
+> 本项目的 5 个工具基于**官方 MCP（Model Context Protocol）Python SDK** 实现，通过**同进程 in-memory transport** 注册与调用，不依赖额外进程或端口。
+
+### 哪些功能用到了 MCP
+
+| 用户输入 / 操作 | 意图 | MCP 工具 | 实际作用 |
+|------|------|---------|---------|
+| 问“搜索/查找一下 XX” | `search` | `search_document` | 知识库向量检索 |
+| 问“总结/摘要文档” | `summary` | `summary_document` | 读文档 → LLM 生成摘要 |
+| 问“联网/最新的 XX” | `web_search` | `web_search` | 网页搜索（duckduckgo） |
+| 问“XX 和 YY 什么关系” | `graph_query` | `query_knowledge_graph` | 查询知识图谱实体关系 |
+| 问“出几道题” / 页面“生成习题” | `exercise` | `generate_exercise` | 评估水平 + 生成习题并存库 |
+| 页面“文档摘要” | — | `summary_document` | 经 `/api/summary` 调用 |
+
+> 普通对话问答**不**走 MCP，而是直接 RAG 检索；只有当规则引擎（`app/agent/intent.py`）把输入识别为上述动作时，才经 MCP 调用对应工具。
+
+### MCP 在这里起什么作用
+
+它把 5 个业务函数包装成**带标准元数据的 MCP 工具**：每个工具都有名称、描述（docstring）和参数 JSON Schema（由类型注解自动生成），可被 `list_tools()` 发现、被 `call_tool()` 按名调用，参数在进入函数前由 pydantic 自动校验。这套协议是业界标准，换成任何 MCP client 都能识别这些工具。
+
+### 怎么实现的
+
+**① Server：把函数注册为工具**（`app/mcp/server.py`）
+
+```python
+mcp = FastMCP("study-agent")
+mcp.tool()(search_document)   # 函数签名+docstring → 工具名/描述/参数Schema
+mcp.tool()(summary_document)
+mcp.tool()(web_search)
+mcp.tool()(query_knowledge_graph)
+mcp.tool()(generate_exercise)
+```
+
+工具函数（`app/tools/*.py`）靠类型注解 + docstring 提供 schema 与描述：
+
+```python
+def search_document(query: str, top_k: int = 4, document_id: int = None) -> dict:
+    """在知识库中搜索与问题相关的文档内容。"""
+    docs = similarity_search(query, top_k=top_k, document_id=document_id)
+    ...
+```
+
+**② Client：同步调用封装**（`app/mcp/client.py`）
+
+```python
+async with create_connected_server_and_client_session(mcp) as session:
+    result = await session.call_tool(name, args)   # in-memory 直连，不走网络
+```
+
+内部完成标准 MCP `initialize` 握手 → 发送 `CallToolRequest` → server 分发到对应函数 → 返回 `CallToolResult`。工具返回 dict 时 FastMCP 序列化为 JSON 文本，client 解析还原；工具抛异常时 `isError=true`，client 转成 `RuntimeError` 抛出；`None` 参数在发送前被过滤（避免 pydantic 对 Optional 字段报错）。
+
+**③ 决策：谁决定调用哪个工具**（`app/agent/agent_core.py` → `_route_and_build`）
+
+```python
+intent = recognize_intent(message)                 # 关键词规则
+if intent == "search":
+    tool_result = call_tool("search_document", {"query": message, ...})
+elif intent == "exercise":
+    tool_result = call_tool("generate_exercise", {"session_id": ..., "types": ..., "count": ...})
+...
+```
+
+**调用时序**
+
+```
+用户 → 规则引擎识别意图 → MCP client.call_tool(name, args)
+                                    │  (in-memory transport)
+                                    ▼
+                         MCP server(同进程) → 分发到工具函数 → 执行业务逻辑
+                                    │
+                                    ▼
+                         结果(dict → JSON) 返回 client → 格式化后拼进 prompt → DeepSeek 生成回复
+```
+
+**与改造前对比**：改造前 5 个工具是自定义 `BaseTool` 类 + `ToolRegistry` 注册表，属于项目私有约定；改造后统一为标准 MCP 协议。若未来想把工具拆成独立服务，只需把 transport 换成 stdio 或 streamable HTTP，MCP server 端代码无需改动。
+
 ## 课程要求对照
 
 | 要求 | 实现 |
 |------|------|
 | 调用 LLM API | `app/llm/deepseek.py` |
 | RAG 检索 | `app/rag/` |
-| ≥2 MCP Tool | `app/tools/search_document.py`、`summary_document.py` |
+| ≥2 MCP Tool（标准 MCP 协议） | 5 个工具注册于 `app/mcp/server.py`，实现于 `app/tools/*`，经 `app/mcp/client.py` 调用 |
 | 多轮对话 | `app/agent/memory.py` + SQLite |
 | Agent 工作流 | `app/agent/agent_core.py` + 规则引擎意图识别（`app/agent/intent.py`） |
 
 ## 修复记录
+
+### 2026-09-03
+
+- **工具层改造为标准 MCP 协议**：将 5 个自定义 `BaseTool` 工具类重构为带类型注解/docstring 的纯函数（`app/tools/*.py`），删除 `app/tools/base.py` 私有注册表。新增 `app/mcp/server.py`（FastMCP 注册工具）与 `app/mcp/client.py`（同步 `call_tool`，同进程 in-memory transport）。`app/agent/agent_core.py`、`app/routes/exercise.py`、`app/routes/summary.py` 全部改经 `call_tool` 调用。新增依赖 `mcp>=1.0.0,<2`。功能逻辑不变，详见上方「MCP 工具机制」章节。
 
 ### 2026-09-01
 

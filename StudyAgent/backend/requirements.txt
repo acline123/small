@@ -17,3 +17,5 @@ requests>=2.31.0
 openai>=1.0.0
 sqlalchemy>=2.0.0
 werkzeug>=3.0.0
+# 标准 MCP 协议（FastMCP 工具注册 + in-memory client）
+mcp>=1.0.0,<2

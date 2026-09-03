@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from app.tools.summary_document import summary_document
+from app.mcp.client import call_tool
 from app.utils.response import error, success
 
 summary_bp = Blueprint("summary", __name__)
@@ -14,7 +14,7 @@ def summary():
         return error("缺少 document_id")
 
     try:
-        result = summary_document.run(document_id=int(document_id))
+        result = call_tool("summary_document", {"document_id": int(document_id)})
         return success(
             {
                 "document_id": result.get("document_id"),
