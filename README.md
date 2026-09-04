@@ -132,7 +132,7 @@ python -m venv .venv
 # macOS / Linux:
 # source .venv/bin/activate
 
-# 安装依赖
+# 安装依赖（若后端启动报 ModuleNotFoundError，说明依赖有更新，重跑一次即可）
 pip install -r requirements.txt
 
 # 启动
@@ -171,6 +171,19 @@ npm run dev
 
 - 确认 `EMBEDDING_API_KEY` 已在 SiliconFlow 注册获取
 - SiliconFlow 有免费额度，注册地址：https://siliconflow.cn
+
+### 后端启动报 ModuleNotFoundError（缺少依赖）
+
+- 报错 `No module named 'mcp'` 等缺包信息：说明仓库 `requirements.txt` 新增了依赖但本机环境未重装（如 2026-09-03 的 MCP 协议改造新增 `mcp>=1.0.0,<2`）。重新安装一次即可：
+
+```bash
+cd StudyAgent/backend
+pip install -r requirements.txt
+# 或只补装新增的包：
+pip install "mcp>=1.0.0,<2"
+```
+
+- 注意在已激活的虚拟环境（`.venv`）中执行，见上方「2. 启动后端」。
 
 ## Git 协作 & 上传 GitHub
 
@@ -242,10 +255,68 @@ StudyAgent/
 │   │   ├── kg/        # 知识图谱
 │   │   └── models/    # 数据库模型
 │   └── ...
-└── docs/              # 设计文档
 ```
 
-## MCP 工具机制（标准 MCP 实现）
+## 课程要求对照
+
+| 要求 | 实现 |
+|------|------|
+| 调用 LLM API | `app/llm/deepseek.py` |
+| RAG 检索 | `app/rag/` |
+| ≥2 MCP Tool（标准 MCP 协议） | 5 个工具注册于 `app/mcp/server.py`，实现于 `app/tools/*`，经 `app/mcp/client.py` 调用 |
+| 多轮对话 | `app/agent/memory.py` + SQLite |
+| Agent 工作流 | `app/agent/agent_core.py` + 规则引擎意图识别（`app/agent/intent.py`） |
+
+## 修复记录
+
+### 2026-09-04
+
+- **修复后端无法启动（缺少 `mcp` 依赖）**：2026-09-03「工具层改造为标准 MCP 协议」后 `requirements.txt` 新增了 `mcp>=1.0.0,<2`，但本机虚拟环境未重新安装依赖，后端启动即报 `ModuleNotFoundError: No module named 'mcp'`（`app/agent/agent_core.py` → `app/mcp/client.py` 在启动时就 import 第三方 `mcp` 包）。重新安装依赖即可恢复：
+
+  ```bash
+  cd StudyAgent/backend
+  .venv\Scripts\activate        # Windows；macOS/Linux: source .venv/bin/activate
+  pip install -r requirements.txt
+  # 或只补装新增的 mcp 包：
+  pip install "mcp>=1.0.0,<2"
+  ```
+
+  > 提示：以后 pull 新代码后若后端启动报缺模块，先重跑一次 `pip install -r requirements.txt`。
+
+### 2026-09-03
+
+- **工具层改造为标准 MCP 协议**：将 5 个自定义 `BaseTool` 工具类重构为带类型注解/docstring 的纯函数（`app/tools/*.py`），删除 `app/tools/base.py` 私有注册表。新增 `app/mcp/server.py`（FastMCP 注册工具）与 `app/mcp/client.py`（同步 `call_tool`，同进程 in-memory transport）。`app/agent/agent_core.py`、`app/routes/exercise.py`、`app/routes/summary.py` 全部改经 `call_tool` 调用。新增依赖 `mcp>=1.0.0,<2`。功能逻辑不变，详见文末「附录：MCP 工具机制」。
+
+### 2026-09-01
+
+- **修复 token-cloud API 域名变更**：代理平台 API 已从 `www.token-cloud.cn` 迁移至 `api.token-cloud.cn`，旧域名现在只保留官网页面，导致 `/api/chat` 返回连接错误（APIConnectionError）。已更新 `.env` / `.env.example` / README 中的 `DEEPSEEK_BASE_URL` 为 `https://api.token-cloud.cn/v1`，Key 无需更换。
+- **优化响应延迟（聊天/上传/习题）**：
+  - 聊天新增 `/api/chat/stream` SSE 流式端点，前端逐字渲染，首字延迟约 7s（原整段等待 10~30s）；意图识别改为规则引擎（`app/agent/intent.py`），去掉每次聊天的一次 LLM 调用；学习分析移至后台线程限时等待（`ANALYSIS_TIMEOUT`，默认 3s），超时降级不阻塞回复。
+  - 习题生成合并为一次 LLM 调用（评估水平 + 出题，原两次串行）；填空题批改先做规范化模糊匹配，未命中时 LLM 判分并行执行。
+  - 上传时知识图谱构建移到后台线程，上传请求不再等待图谱 LLM 提取（实测该调用约 48s）；图谱提取范围缩小（1500 字 / 10 实体）。
+  - DeepSeek client 改为惰性单例，新增 `chat_stream()` 流式生成。
+
+### 2026-07-10
+
+- **新增智能习题功能**：后端新增 Exercise/ExerciseResult 表 + 5 个 API，MCP Tool `generate_exercise` 通过 LLM 评估知识水平并生成适配习题（选择/判断/填空），前端新增 Exercise 页面逐题作答即时批改。
+- **合并组员学习分析模块**：`app/analysis/` 模块在每次提问时并行分析用户水平（ThreadPoolExecutor），结合聊天历史生成问题总结、知识评估和学习路线。Agent 并行架构：分析+意图识别同时执行。
+- **合并组员其他更新**：会话置顶（pinned 字段）、Bing 搜索增强、ChatWindow 可视化渲染组件。
+- **修复可视化缺失**：组员提交中缺少 Mermaid 图表生成后端模块，暂不可用。剩余功能均可正常运行。
+- **修复聊天消息**： 修复 markdown 格式渲染，可以正常显示内容。
+
+### 2026-07-07
+
+- **修复 API Key 认证失败（401）**：`.env` 中 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 配置错误。项目实际使用老师提供的 token-cloud 代理平台（`www.token-cloud.cn`），而非 DeepSeek 官方 API。修正 `BASE_URL` 为 `https://www.token-cloud.cn/v1`，模型名为 `DeepSeek-V4-Flash`。
+- **修复 Base URL 路径重复**：SDK 自动拼接 `/chat/completions`，`.env` 中不应在 Base URL 末尾包含该路径。
+- **移动 README 到项目根目录**：原位于 `StudyAgent/README.md`，移至 `README.md`，与内部路径引用保持一致。
+
+### 2026-06-30
+
+- **修复 Flask 实例变量名冲突**：`app/__init__.py` 中 `app = Flask(__name__)` 与包名 `app` 重名，`import app.tools` 后 Flask 实例被模块覆盖，导致 `AttributeError: module 'app' has no attribute 'register_blueprint'`。已将 Flask 实例变量重命名为 `flask_app`。
+
+## 附录：MCP 工具机制（标准 MCP 实现）
+
+> 本附录是「课程要求对照」中“≥2 MCP Tool（标准 MCP 协议）”的实现细节，对应修复记录 2026-09-03 的「工具层改造为标准 MCP 协议」。
 
 > 本项目的 5 个工具基于**官方 MCP（Model Context Protocol）Python SDK** 实现，通过**同进程 in-memory transport** 注册与调用，不依赖额外进程或端口。
 
@@ -321,46 +392,3 @@ elif intent == "exercise":
 ```
 
 **与改造前对比**：改造前 5 个工具是自定义 `BaseTool` 类 + `ToolRegistry` 注册表，属于项目私有约定；改造后统一为标准 MCP 协议。若未来想把工具拆成独立服务，只需把 transport 换成 stdio 或 streamable HTTP，MCP server 端代码无需改动。
-
-## 课程要求对照
-
-| 要求 | 实现 |
-|------|------|
-| 调用 LLM API | `app/llm/deepseek.py` |
-| RAG 检索 | `app/rag/` |
-| ≥2 MCP Tool（标准 MCP 协议） | 5 个工具注册于 `app/mcp/server.py`，实现于 `app/tools/*`，经 `app/mcp/client.py` 调用 |
-| 多轮对话 | `app/agent/memory.py` + SQLite |
-| Agent 工作流 | `app/agent/agent_core.py` + 规则引擎意图识别（`app/agent/intent.py`） |
-
-## 修复记录
-
-### 2026-09-03
-
-- **工具层改造为标准 MCP 协议**：将 5 个自定义 `BaseTool` 工具类重构为带类型注解/docstring 的纯函数（`app/tools/*.py`），删除 `app/tools/base.py` 私有注册表。新增 `app/mcp/server.py`（FastMCP 注册工具）与 `app/mcp/client.py`（同步 `call_tool`，同进程 in-memory transport）。`app/agent/agent_core.py`、`app/routes/exercise.py`、`app/routes/summary.py` 全部改经 `call_tool` 调用。新增依赖 `mcp>=1.0.0,<2`。功能逻辑不变，详见上方「MCP 工具机制」章节。
-
-### 2026-09-01
-
-- **修复 token-cloud API 域名变更**：代理平台 API 已从 `www.token-cloud.cn` 迁移至 `api.token-cloud.cn`，旧域名现在只保留官网页面，导致 `/api/chat` 返回连接错误（APIConnectionError）。已更新 `.env` / `.env.example` / README 中的 `DEEPSEEK_BASE_URL` 为 `https://api.token-cloud.cn/v1`，Key 无需更换。
-- **优化响应延迟（聊天/上传/习题）**：
-  - 聊天新增 `/api/chat/stream` SSE 流式端点，前端逐字渲染，首字延迟约 7s（原整段等待 10~30s）；意图识别改为规则引擎（`app/agent/intent.py`），去掉每次聊天的一次 LLM 调用；学习分析移至后台线程限时等待（`ANALYSIS_TIMEOUT`，默认 3s），超时降级不阻塞回复。
-  - 习题生成合并为一次 LLM 调用（评估水平 + 出题，原两次串行）；填空题批改先做规范化模糊匹配，未命中时 LLM 判分并行执行。
-  - 上传时知识图谱构建移到后台线程，上传请求不再等待图谱 LLM 提取（实测该调用约 48s）；图谱提取范围缩小（1500 字 / 10 实体）。
-  - DeepSeek client 改为惰性单例，新增 `chat_stream()` 流式生成。
-
-### 2026-07-10
-
-- **新增智能习题功能**：后端新增 Exercise/ExerciseResult 表 + 5 个 API，MCP Tool `generate_exercise` 通过 LLM 评估知识水平并生成适配习题（选择/判断/填空），前端新增 Exercise 页面逐题作答即时批改。
-- **合并组员学习分析模块**：`app/analysis/` 模块在每次提问时并行分析用户水平（ThreadPoolExecutor），结合聊天历史生成问题总结、知识评估和学习路线。Agent 并行架构：分析+意图识别同时执行。
-- **合并组员其他更新**：会话置顶（pinned 字段）、Bing 搜索增强、ChatWindow 可视化渲染组件。
-- **修复可视化缺失**：组员提交中缺少 Mermaid 图表生成后端模块，暂不可用。剩余功能均可正常运行。
-- **修复聊天消息**： 修复 markdown 格式渲染，可以正常显示内容。
-
-### 2026-07-07
-
-- **修复 API Key 认证失败（401）**：`.env` 中 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 配置错误。项目实际使用老师提供的 token-cloud 代理平台（`www.token-cloud.cn`），而非 DeepSeek 官方 API。修正 `BASE_URL` 为 `https://www.token-cloud.cn/v1`，模型名为 `DeepSeek-V4-Flash`。
-- **修复 Base URL 路径重复**：SDK 自动拼接 `/chat/completions`，`.env` 中不应在 Base URL 末尾包含该路径。
-- **移动 README 到项目根目录**：原位于 `StudyAgent/README.md`，移至 `README.md`，与内部路径引用保持一致。
-
-### 2026-06-30
-
-- **修复 Flask 实例变量名冲突**：`app/__init__.py` 中 `app = Flask(__name__)` 与包名 `app` 重名，`import app.tools` 后 Flask 实例被模块覆盖，导致 `AttributeError: module 'app' has no attribute 'register_blueprint'`。已将 Flask 实例变量重命名为 `flask_app`。
